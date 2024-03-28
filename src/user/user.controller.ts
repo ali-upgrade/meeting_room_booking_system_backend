@@ -14,6 +14,19 @@ import { RedisService } from 'src/redis/redis.service';
 import { LoginUserDto } from './dto/login-user.dto';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { LoginUserVo } from './vo/login-user.vo';
+
+type OmitMultiple<T, K extends keyof T> = Pick<T, Exclude<keyof T, K>>;
+type userToken = OmitMultiple<
+  LoginUserVo['userInfo'],
+  | 'createTime'
+  | 'email'
+  | 'headPic'
+  | 'nickName'
+  | 'isAdmin'
+  | 'isFrozen'
+  | 'phoneNumber'
+>;
 
 @Controller('user')
 export class UserController {
@@ -30,6 +43,62 @@ export class UserController {
 
   @Inject(ConfigService)
   private configService: ConfigService;
+
+  private getToken(vo: LoginUserVo) {
+    vo.accessToken = this.jwtService.sign(
+      {
+        userId: vo.userInfo.id,
+        username: vo.userInfo.username,
+        roles: vo.userInfo.roles,
+        permissions: vo.userInfo.permissions,
+      },
+      {
+        expiresIn:
+          this.configService.get('jwt_access_token_expires_time') || '30m',
+      },
+    );
+
+    vo.refreshToken = this.jwtService.sign(
+      {
+        userId: vo.userInfo.id,
+      },
+      {
+        expiresIn:
+          this.configService.get('jwt_refresh_token_expres_time') || '7d',
+      },
+    );
+    return vo;
+  }
+
+  private getUpdateToken(user: userToken) {
+    const access_token = this.jwtService.sign(
+      {
+        userId: user.id,
+        username: user.username,
+        roles: user.roles,
+        permissions: user.permissions,
+      },
+      {
+        expiresIn:
+          this.configService.get('jwt_access_token_expires_time') || '30m',
+      },
+    );
+
+    const refresh_token = this.jwtService.sign(
+      {
+        userId: user.id,
+      },
+      {
+        expiresIn:
+          this.configService.get('jwt_refresh_token_expres_time') || '7d',
+      },
+    );
+
+    return {
+      access_token,
+      refresh_token,
+    };
+  }
 
   @Get('register-captcha')
   async captcha(@Query('address') address: string) {
@@ -59,58 +128,15 @@ export class UserController {
   @Post('login')
   async userLogin(@Body() loginUser: LoginUserDto) {
     const vo = await this.userService.login(loginUser, false);
-
-    vo.accessToken = this.jwtService.sign(
-      {
-        userId: vo.userInfo.id,
-        username: vo.userInfo.username,
-        roles: vo.userInfo.roles,
-        permissions: vo.userInfo.permissions,
-      },
-      {
-        expiresIn: this.configService.get('jwt_access_token_expires_time'),
-      },
-    );
-
-    vo.refreshToken = this.jwtService.sign(
-      {
-        userId: vo.userInfo.id,
-      },
-      {
-        expiresIn: this.configService.get('jwt_refresh_token_expres_time'),
-      },
-    );
-
-    return vo;
+    const resVo = this.getToken(vo);
+    return resVo;
   }
 
   @Post('admin/login')
   async adminLogin(@Body() loginUser: LoginUserDto) {
     const vo = await this.userService.login(loginUser, true);
-
-    vo.accessToken = this.jwtService.sign(
-      {
-        userId: vo.userInfo.id,
-        username: vo.userInfo.username,
-        roles: vo.userInfo.roles,
-        permissions: vo.userInfo.permissions,
-      },
-      {
-        expiresIn:
-          this.configService.get('jwt_access_token_expires_time') || '30m',
-      },
-    );
-
-    vo.refreshToken = this.jwtService.sign(
-      {
-        userId: vo.userInfo.id,
-      },
-      {
-        expiresIn:
-          this.configService.get('jwt_refresh_token_expres_time') || '7d',
-      },
-    );
-    return vo;
+    const resVo = this.getToken(vo);
+    return resVo;
   }
 
   @Get('refresh')
@@ -120,33 +146,7 @@ export class UserController {
 
       const user = await this.userService.findUserById(data.userId, false);
 
-      const access_token = this.jwtService.sign(
-        {
-          userId: user.id,
-          username: user.username,
-          roles: user.roles,
-          permissions: user.permissions,
-        },
-        {
-          expiresIn:
-            this.configService.get('jwt_access_token_expires_time') || '30m',
-        },
-      );
-
-      const refresh_token = this.jwtService.sign(
-        {
-          userId: user.id,
-        },
-        {
-          expiresIn:
-            this.configService.get('jwt_refresh_token_expres_time') || '7d',
-        },
-      );
-
-      return {
-        access_token,
-        refresh_token,
-      };
+      return this.getUpdateToken(user);
     } catch (error) {
       throw new UnauthorizedException('token 已失效， 请重新登陆');
     }
@@ -159,33 +159,7 @@ export class UserController {
 
       const user = await this.userService.findUserById(data.userId, true);
 
-      const access_token = this.jwtService.sign(
-        {
-          userId: user.id,
-          username: user.username,
-          roles: user.roles,
-          permissions: user.permissions,
-        },
-        {
-          expiresIn:
-            this.configService.get('jwt_access_token_expires_time') || '30m',
-        },
-      );
-
-      const refresh_token = this.jwtService.sign(
-        {
-          userId: user.id,
-        },
-        {
-          expiresIn:
-            this.configService.get('jwt_refresh_token_expres_time') || '7d',
-        },
-      );
-
-      return {
-        access_token,
-        refresh_token,
-      };
+      return this.getUpdateToken(user);
     } catch (e) {
       throw new UnauthorizedException('token 已失效，请重新登录');
     }
